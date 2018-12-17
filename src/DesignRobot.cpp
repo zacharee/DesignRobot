@@ -8,29 +8,10 @@
 uint8_t MOTOR_1 = 4;
 uint8_t MOTOR_2 = 14;
 
-int GOOD_TURN_DELAY = 240;
-
-int SIDE_DISTANCE_RIGHT_LOW = 400; //fix
-int SIDE_DISTANCE_RIGHT_HIGH = 500; //fix
-int SIDE_DISTANCE_LEFT_LOW = 400; //fix
-int SIDE_DISTANCE_LEFT_HIGH = 500; //fix
-
-int FRONT_BACK_DIST_MID_LONG = 3800; //fix
-int FRONT_BACK_DIST_MID_SHORT = 1400; //fix
-
-//uint8_t ECHO_LEFT = 12;
-//uint8_t TRIG_LEFT = 13;
-//uint8_t ECHO_FRONT = 0;
-//uint8_t TRIG_FRONT = 15;
-//uint8_t ECHO_RIGHT = 16;
-//uint8_t TRIG_RIGHT = 5;
-
 uint8_t LEFT = 12;
 uint8_t FRONT = 13;
 uint8_t RIGHT = 15;
 uint8_t BACK = 16;
-
-int TWO_INCH_HIGH = 700;
 
 int MOTOR_1_STOP = 92;
 int MOTOR_2_STOP = 92;
@@ -41,9 +22,6 @@ int motorTwoFReverse = 112;
 int motorOneStop = 92;
 int motorTwoStop = 92;
 
-int motorOneFull = 110;
-int motorTwoFull = 77;
-
 int motorOneBoost = 114;
 int motorTwoBoost = 74;
 
@@ -53,35 +31,9 @@ Servo motorTwo;
 WiFiServer server(80);
 String readString;
 
-bool printLedState = false;
 bool printSensors = false;
-int printMotorState = -1;
 
-bool runStraightStop = false;
-bool runRunNascar = false;
-bool runChallenge = false;
-
-int turnCount = 0;
-bool currentlyStopped = false;
-
-int mOne;
-int mTwo;
-int mDelay;
-
-void setMotorAbsolute(int which, int speed);
-void setMotor(int which, signed int percent);
-int getMotor(int which);
-void serialFlush();
-void toggleLed(uint8_t value);
-bool isTooClose(int ping);
-bool isMotorRunningForward(uint8_t motor);
-bool isMotorRunningBackwards(uint8_t motor);
-bool tooFarLeft(int pingLeft, int pingRight);
-bool tooFarRight(int pingLeft, int pingRight);
-bool needsToStop(int pingFront);
-void runNascar(int mOne, int mTwo, int delay);
-void turnLeft(int turnDelay);
-void straightStop(int mOne, int mTwo);
+WiFiClient client;
 
 class Challenge {
 private:
@@ -103,15 +55,19 @@ private:
     int BUMPER_LEFT_THRESHOLD = 3200;
     int BUMPER_RIGHT_THRESHOLD = 3200;
 
+    int TWO_INCH_HIGH = 700;
+
     int shorterSide = -1;
     int bumperSide = -1;
 
-    int mOneSpeed;
-    int mTwoSpeed;
-    int motorDelay;
+    int mOneSpeed = 92;
+    int mTwoSpeed = 92;
+    int motorDelay = 240;
 
     void followSide() {
-        hitMid(false);
+//        client.println("followSide()");
+        Serial.println("followSide()");
+        hitMidForward(false);
 
         if (shorterSide == SHORTER_LEFT) turnRight();
         else turnLeft();
@@ -122,28 +78,34 @@ private:
     }
 
     void followToAD() {
-        hitMid(true);
+//        client.println("followToAD()");
+        Serial.println("followToAD()");
+
+        hitMidForward(true);
 
         hitAD();
 
         if (bumperSide == BUMPER_LEFT) turnLeft();
         else turnRight();
 
-        hit();
+        hitForward();
         hitMidReverse();
         turnRight();
     }
 
     void followToBC() {
+//        client.println("followToBC()");
+        Serial.println("followToBC()");
+
         hitBC();
         turnRight();
-        hit();
+        hitForward();
         hitReverse();
-        hitMid(true);
+        hitMidForward(true);
         turnRight();
         hitAD();
         turnLeft();
-        hit();
+        hitForward();
         hitMidReverse();
 
         if (bumperSide == BUMPER_LEFT) turnRight();
@@ -155,26 +117,31 @@ private:
         else turnLeft();
     }
 
+    bool hitA = false;
+
     void hitAD() {
+//        client.println("hitAD()");
+        Serial.println("hitAD()");
+
         if (bumperSide == BUMPER_LEFT) {
             motorOne.write(motorOneFReverse);
             motorTwo.write(motorTwoFReverse);
         } else {
-            motorOne.write(motorOneFull);
-            motorTwo.write(motorTwoFull);
+            motorOne.write(mOneSpeed);
+            motorTwo.write(mTwoSpeed);
         }
-
-        bool hitA = false;
 
         while (!hitA) {
             stabilize();
 
-            auto front = ultrasonicPing(FRONT);
-            auto back = ultrasonicPing(BACK);
+            front = ultrasonicPing(FRONT);
+            back = ultrasonicPing(BACK);
 
             if (bumperSide == BUMPER_LEFT) hitA = (back < BACK_A_D_HIGH && back > BACK_A_D_LOW);
             else hitA = (front < FRONT_A_D_HIGH && front > FRONT_A_D_LOW);
         }
+
+        hitA = false;
 
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
@@ -183,20 +150,23 @@ private:
     }
 
     void hitBC() {
-        motorOne.write(motorOneFull);
-        motorTwo.write(motorTwoFull);
+//        client.println("hitBC()");
+        Serial.println("hitBC()");
 
-        bool hitA = false;
+        motorOne.write(mOneSpeed);
+        motorTwo.write(mTwoSpeed);
 
         while (!hitA) {
             stabilize();
 
-            auto front = ultrasonicPing(FRONT);
-            auto back = ultrasonicPing(BACK);
+            front = ultrasonicPing(FRONT);
+            back = ultrasonicPing(BACK);
 
             if (bumperSide == BUMPER_LEFT) hitA = (back < BACK_B_C_HIGH && back > BACK_B_C_LOW);
             else hitA = (front < FRONT_B_C_HIGH && front > FRONT_B_C_LOW);
         }
+
+        hitA = false;
 
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
@@ -204,17 +174,22 @@ private:
         delay(1000);
     }
 
-    void hitMid(bool stabilize) {
-        motorOne.write(motorOneFull);
-        motorTwo.write(motorTwoFull);
+    bool hitMid = false;
 
-        bool hitMid = false;
+    void hitMidForward(bool stabilize) {
+//        client.printf("stabilize(%d)\n", stabilize);
+        Serial.printf("hitMidForward(%i)\n", stabilize);
+
+        motorOne.write(mOneSpeed);
+        motorTwo.write(mTwoSpeed);
 
         while (!hitMid) {
             if (stabilize) this->stabilize();
 
             hitMid = hasHitMid();
         }
+
+        hitMid = false;
 
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
@@ -223,10 +198,11 @@ private:
 
 
     void hitMidReverse() {
+//        client.println("hitMidReverse()");
+        Serial.println("hitMidReverse()");
+        
         motorOne.write(motorOneFReverse);
         motorTwo.write(motorTwoFReverse);
-
-        bool hitMid = false;
 
         while (!hitMid) {
             stabilize();
@@ -234,39 +210,56 @@ private:
             hitMid = hasHitMid();
         }
 
+        hitMid = false;
+
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
         delay(1000);
     }
 
-    void hit() {
-        motorOne.write(motorOneFull);
-        motorTwo.write(motorTwoFull);
+    bool hit = false;
+    long front;
 
-        bool hit = false;
+    void hitForward() {
+//        client.println("hit()");
+        Serial.println("hitForward()");
+        
+        motorOne.write(mOneSpeed);
+        motorTwo.write(mTwoSpeed);
 
         while (!hit) {
-            auto front = ultrasonicPing(FRONT);
-            hit = front < 100;
+            front = ultrasonicPing(FRONT);
+            hit = front < 200 && front > 0;
         }
 
+        hit = false;
+
+        delay(1000);
+    
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
         delay(1000);
     }
 
+    long back;
+
     void hitReverse() {
+//        client.println("hitReverse()");
+        Serial.println("hitReverse()");
+        
         motorOne.write(motorOneFReverse);
         motorTwo.write(motorTwoFReverse);
-
-        bool hit = false;
 
         while (!hit) {
             stabilize();
 
-            auto back = ultrasonicPing(BACK);
-            hit = back < 100;
+            back = ultrasonicPing(BACK);
+            hit = back < 200 && back > 0;
         }
+
+        hit = false;
+
+        delay(1000);
 
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
@@ -274,10 +267,11 @@ private:
     }
 
     void hitEdge() {
-        motorOne.write(motorOneFull);
-        motorTwo.write(motorTwoFull);
-
-        bool hit = false;
+//        client.println("hitEdge()");
+        Serial.println("hitEdge()");
+        
+        motorOne.write(mOneSpeed);
+        motorTwo.write(mTwoSpeed);
 
         while (!hit) {
             stabilize();
@@ -285,14 +279,19 @@ private:
             hit = needsToStop(ultrasonicPing(FRONT));
         }
 
+        hit = false;
+
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
         delay(1000);
     }
 
     void turnLeft() {
+//        client.println("turnLeft()");
+        Serial.println("turnLeft()");
+        
         motorOne.write(motorOneFReverse);
-        motorTwo.write(motorTwoFull);
+        motorTwo.write(mTwoSpeed);
         delay(motorDelay);
         motorOne.write(motorOneStop);
         motorTwo.write(motorTwoStop);
@@ -300,7 +299,10 @@ private:
     }
 
     void turnRight() {
-        motorOne.write(motorOneFull);
+//        client.println("turnRight()");
+        Serial.println("turnRight()");
+        
+        motorOne.write(mOneSpeed);
         motorTwo.write(motorTwoFReverse);
         delay(motorDelay);
         motorOne.write(motorOneStop);
@@ -308,42 +310,65 @@ private:
         delay(1000);
     }
 
+    long frontLow;
+    long backLow;
+    long frontHigh;
+    long backHigh;
+    bool hasHit = false;
+
     bool hasHitMid() {
-        auto front = ultrasonicPing(FRONT);
-        auto back = ultrasonicPing(BACK);
+//        client.println("hasHitMid()");
 
-        auto frontLow = front - 100;
-        auto backLow = back - 100;
-        auto frontHigh = front + 100;
-        auto backHigh = back + 100;
+        front = ultrasonicPing(FRONT);
+        back = ultrasonicPing(BACK);
 
-        auto hasHit = (back < frontHigh && back > frontLow) || (front < backHigh && front > backLow);
+        frontLow = front - 100;
+        backLow = back - 100;
+        frontHigh = front + 100;
+        backHigh = back + 100;
 
-        Serial.printf("Front: %d, Low: %d, High: %d, Back: %d, Low: %d, High: %d, Hit: %d \n",
-                      front, frontLow, frontHigh, back, backLow, backHigh, hasHit);
+        hasHit = (back < frontHigh && back > frontLow) || (front < backHigh && front > backLow);
+
+//        client.printf("hasHitMid() == %d\n", hasHit);
 
         return hasHit;
     }
 
-    void stabilize() {
-        int pingLeft = ultrasonicPing(LEFT);
-        int pingRight = ultrasonicPing(RIGHT);
+    long left;
+    long right;
 
-        if (tooFarLeft(pingLeft, pingRight)) {
-            if (isMotorRunningForward(MOTOR_1)) {
+    void stabilize() {
+
+        left = ultrasonicPing(LEFT);
+        right = ultrasonicPing(RIGHT);
+
+        if (tooFarLeft(left, right)) {
+            if (motorOne.read() > motorOneStop) {
                 motorOne.write(motorOneBoost);
                 delay(10);
-                motorOne.write(motorOneFull);
+                motorOne.write(mOneSpeed);
             }
         }
 
-        if (tooFarRight(pingLeft, pingRight)) {
-            if (isMotorRunningForward(MOTOR_2)) {
+        if (tooFarRight(left, right)) {
+            if (motorTwo.read() > motorTwoStop) {
                 motorTwo.write(motorTwoBoost);
                 delay(10);
-                motorTwo.write(motorTwoFull);
+                motorTwo.write(mTwoSpeed);
             }
         }
+    }
+
+    bool tooFarLeft(int pingLeft, int pingRight) {
+        return pingLeft < pingRight;
+    }
+
+    bool tooFarRight(int pingLeft, int pingRight) {
+        return pingRight < pingLeft;
+    }
+
+    bool needsToStop(int pingFront) {
+        return pingFront <= TWO_INCH_HIGH;
     }
 
 public:
@@ -352,16 +377,19 @@ public:
         this->mTwoSpeed = mTwoSpeed;
         this->motorDelay = delay;
 
-        auto left = ultrasonicPing(LEFT);
-        auto right = ultrasonicPing(RIGHT);
+        left = ultrasonicPing(LEFT);
+        right = ultrasonicPing(RIGHT);
 
         if (left < right) shorterSide = SHORTER_LEFT;
         else shorterSide = SHORTER_RIGHT;
 
-        if (left < BUMPER_LEFT_THRESHOLD) bumperSide = BUMPER_LEFT;
-        else if (right < BUMPER_RIGHT_THRESHOLD) bumperSide = BUMPER_RIGHT;
+        if (left < right && right < BUMPER_RIGHT_THRESHOLD) bumperSide = BUMPER_RIGHT;
         else if (left < right) bumperSide = BUMPER_LEFT;
-        else bumperSide = BUMPER_RIGHT;
+        else if (right < left && left < BUMPER_LEFT_THRESHOLD) bumperSide = BUMPER_LEFT;
+        else if (right < left) bumperSide = BUMPER_RIGHT;
+        
+//        client.printf("mOneSpeed: %i, mTwoSpeed: %i, motorOneFReverse: %i, motorTwoFReverse: %i, turnDelay: %i, shorterSide: %i, bumperSide: %i",
+//                mOneSpeed, mTwoSpeed, motorOneFReverse, motorTwoFReverse, motorDelay, shorterSide, bumperSide);
 
         followSide();
     }
@@ -373,8 +401,6 @@ void setup() {
     Serial.begin(9600);
 
     pinMode(BUILTIN_LED, OUTPUT);
-
-    toggleLed(LOW);
 
     motorOne.attach(MOTOR_1);
     motorTwo.attach(MOTOR_2);
@@ -388,25 +414,7 @@ void setup() {
 }
 
 void loop() {
-    WiFiClient client = server.available();
-
-//    if (runStraightStop) {
-//        straightStop(mOne, mTwo);
-//    }
-//
-//    if (runRunNascar) {
-//        runNascar(mOne, mTwo, mDelay);
-//    }
-
-    Serial.print("Left: ");
-    Serial.print(ultrasonicPing(LEFT));
-    Serial.print(", Front: ");
-    Serial.print(ultrasonicPing(FRONT));
-    Serial.print(", Right: ");
-    Serial.print(ultrasonicPing(RIGHT));
-    Serial.print(", Back: ");
-    Serial.println(ultrasonicPing(BACK));
-
+    client = server.available();
 
     if (client) {
         bool currentLineIsBlank = true;
@@ -421,18 +429,6 @@ void loop() {
                     client.println("Content-Type: text/html");
                     client.println("Connection: close");
                     client.println();
-//          client.println("<!DOCTYPE HTML>");
-//          client.println("<html>");
-
-                    if (printLedState) {
-                        client.println(digitalRead(BUILTIN_LED));
-                        printLedState = false;
-                    }
-
-                    if (printMotorState != -1) {
-                        client.println(getMotor(printMotorState));
-                        printMotorState = -1;
-                    }
 
                     if (printSensors) {
                         client.printf("%i,%i,%i,%i\n",
@@ -442,8 +438,6 @@ void loop() {
                                       ultrasonicPing(BACK));
                     }
 
-//          client.println("</html>");
-
                     readString = "";
 
                     break;
@@ -452,77 +446,12 @@ void loop() {
                 if (c == '\n') {
                     currentLineIsBlank = true;
 
-                    if (readString.indexOf("toggleLed(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-                        toggleLed((uint8_t) value.toInt());
-                    } else if (readString.indexOf("setMotor(") >= 0) {
+                if (readString.indexOf("doChallenge(") >= 0) {
                         String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
                                                             (unsigned) readString.indexOf("))", 10));
 
-                        String motor = value.substring(0, (unsigned) value.indexOf(','));
-                        String speed = value.substring((unsigned) value.indexOf(',') + 1, value.length());
-
-                        setMotorAbsolute(motor.toInt(), speed.toInt());
-                    } else if (readString.indexOf("setBothMotors(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-
-                        String motorOne = value.substring(0, (unsigned) value.indexOf(','));
-                        String motorTwo = value.substring((unsigned) value.indexOf(',') + 1, value.length());
-
-                        setMotorAbsolute(1, motorOne.toInt());
-                        setMotorAbsolute(2, motorTwo.toInt());
-
-                        if (motorOne.toInt() == MOTOR_1_STOP && motorTwo.toInt() == MOTOR_2_STOP) {
-                            runRunNascar = false;
-                            runStraightStop = false;
-                            turnCount = 0;
-                            currentlyStopped = false;
-                        }
-                    } else if (readString.indexOf("getLedState(") >= 0) {
-                        printLedState = true;
-                    } else if (readString.indexOf("getMotorState(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-
-                        printMotorState = value.toInt();
-                    } else if (readString.indexOf("setMotorPercent(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-
-                        String motor = value.substring(0, (unsigned) value.indexOf(','));
-                        String speed = value.substring((unsigned) value.indexOf(',') + 1, value.length());
-
-                        int speedInt = speed.toInt();
-
-                        setMotor(motor.toInt(), speedInt);
-                    } else if (readString.indexOf("straightStop(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-
-                        String mOne = value.substring(0, (unsigned) value.indexOf(','));
-                        String mTwo = value.substring((unsigned) value.indexOf(',') + 1, value.length());
-
-                        if (!runStraightStop) straightStop(mOne.toInt(), mTwo.toInt());
-                    } else if (readString.indexOf("runNascar(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-
-                        auto indexComma = (unsigned) value.indexOf(',');
-                        auto indexColon = (unsigned) value.indexOf(':');
-
-                        String mOne = value.substring(0, indexComma);
-                        String mTwo = value.substring(indexComma + 1, indexColon);
-                        String delay = value.substring(indexColon + 1, value.length());
-
-                        if (!runRunNascar) runNascar(mOne.toInt(), mTwo.toInt(), delay.toInt());
-                    } else if (readString.indexOf("doChallenge(") >= 0) {
-                        String value = readString.substring((unsigned) readString.indexOf("((", 10) + 2,
-                                                            (unsigned) readString.indexOf("))", 10));
-
-                        auto indexComma = (unsigned) value.indexOf(',');
-                        auto indexColon = (unsigned) value.indexOf(':');
+                        int indexComma = (unsigned) value.indexOf(',');
+                        int indexColon = (unsigned) value.indexOf(':');
 
                         String mOne = value.substring(0, indexComma);
                         String mTwo = value.substring(indexComma + 1, indexColon);
@@ -542,163 +471,4 @@ void loop() {
         client.stop();
     }
 
-}
-
-bool isTooClose(int ping) {
-    return ping < 300;
-}
-
-bool isMotorRunningForward(uint8_t motor) {
-    if (motor == MOTOR_1) return motorOne.read() > MOTOR_1_STOP;
-    else return motorTwo.read() < MOTOR_2_STOP;
-}
-
-bool isMotorRunningBackwards(uint8_t motor) {
-    if (motor == MOTOR_1) return motorOne.read() < MOTOR_1_STOP;
-    else return motorTwo.read() > MOTOR_2_STOP;
-}
-
-bool tooFarLeft(int pingLeft, int pingRight) {
-    return pingLeft < pingRight;
-}
-
-bool tooFarRight(int pingLeft, int pingRight) {
-    return pingRight < pingLeft;
-}
-
-void setMotorAbsolute(int which, int speed) {
-    if (which == 1) motorOne.write(speed);
-    else if (which == 2) motorTwo.write(speed);
-}
-
-int getMotor(int which) {
-    if (which == 1) return motorOne.read();
-    else if (which == 2) return motorTwo.read();
-    else return -1;
-}
-
-void serialFlush() {
-    while (Serial.available() > 0) {
-        char t = static_cast<char>(Serial.read());
-    }
-}
-
-void toggleLed(uint8_t value) {
-    digitalWrite(BUILTIN_LED, value);
-}
-
-void setMotorOne(int percent) {
-    setMotor(1, percent);
-}
-
-void setMotorTwo(int percent) {
-    setMotor(2, percent);
-}
-
-void setMotor(int which, signed int percent) {
-    if (which == 1) {
-        if (percent == 0) motorOne.write(motorOneStop);
-        else motorOne.write(map(percent, -100, 100, motorOneFReverse, motorOneFull));
-    } else if (which == 2) {
-        percent = -percent;
-        if (percent == 0) motorTwo.write(motorTwoStop);
-        else motorTwo.write(map(percent, -100, 100, motorTwoFull, motorTwoFReverse));
-    }
-}
-
-bool needsToStop(int pingFront) {
-    return pingFront <= TWO_INCH_HIGH;
-}
-
-void straightStop(int mOne, int mTwo) {
-    if (!runStraightStop) {
-        runStraightStop = true;
-        ::mOne = mOne;
-        ::mTwo = mTwo;
-    }
-
-    motorOne.write(mOne);
-    motorTwo.write(mTwo);
-
-    int pingLeft = ultrasonicPing(LEFT);
-    int pingFront = ultrasonicPing(FRONT);
-    int pingRight = ultrasonicPing(RIGHT);
-
-    if (tooFarLeft(pingLeft, pingRight)) {
-        if (isMotorRunningForward(MOTOR_1)) {
-            motorOne.write(motorOneBoost);
-            delay(10);
-            motorOne.write(motorOneFull);
-        }
-    }
-
-    if (tooFarRight(pingLeft, pingRight)) {
-        if (isMotorRunningForward(MOTOR_2)) {
-            motorTwo.write(motorTwoBoost);
-            delay(10);
-            motorTwo.write(motorTwoFull);
-        }
-    }
-
-    if (needsToStop(pingFront)) {
-        motorOne.write(motorOneStop);
-        motorTwo.write(motorTwoStop);
-    }
-}
-
-void runNascar(int mOne, int mTwo, int turnDelay) {
-    if (!runRunNascar) {
-        runRunNascar = true;
-        ::mOne = mOne;
-        ::mTwo = mTwo;
-        ::mDelay = turnDelay;
-    }
-
-    motorOne.write(mOne);
-    motorTwo.write(mTwo);
-
-    int pingLeft = ultrasonicPing(LEFT);
-    int pingFront = ultrasonicPing(FRONT);
-    int pingRight = ultrasonicPing(RIGHT);
-
-    if (tooFarLeft(pingLeft, pingRight)) {
-        if (isMotorRunningForward(MOTOR_1)) {
-            motorOne.write(motorOneBoost);
-            delay(10);
-            motorOne.write(motorOneFull);
-        }
-    }
-
-    if (tooFarRight(pingLeft, pingRight)) {
-        if (isMotorRunningForward(MOTOR_2)) {
-            motorTwo.write(motorTwoBoost);
-            delay(10);
-            motorTwo.write(motorTwoFull);
-        }
-    }
-
-    if (needsToStop(pingFront) && !currentlyStopped) {
-        currentlyStopped = true;
-        motorOne.write(motorOneStop);
-        motorTwo.write(motorTwoStop);
-        if (turnCount < 4) {
-            delay(100);
-            turnLeft(turnDelay);
-            turnCount++;
-            motorOne.write(motorOneStop);
-            motorTwo.write(motorTwoStop);
-            delay(100);
-        } else {
-            runRunNascar = false;
-            turnCount = 0;
-        }
-    } else {
-        currentlyStopped = false;
-    }
-}
-
-void turnLeft(int turnDelay) {
-    motorOne.write(motorOneFReverse);
-    motorTwo.write(motorTwoFull);
-    delay((unsigned long) turnDelay);
 }
